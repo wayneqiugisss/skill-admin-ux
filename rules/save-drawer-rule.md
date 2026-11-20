@@ -6,16 +6,27 @@
 >
 > | 主题 | 单一事实来源 |
 > |---|---|
-> | 卡片分区、一行三格、通栏例外、组件白名单、卡片样式块、`append-to-body` scoped 落点 | `form-drawer-card-rule.md` §1–§6 |
+> | 容器选型（对话框 / 抽屉）、列数判定、卡片分区、通栏例外、组件白名单、样式块、`append-to-body` scoped 落点 | `form-drawer-card-rule.md` §0–§6 |
 > | 抽屉宽度档位、嵌套降档、列表型抽屉骨架 | `drawer-layout-rule.md` §1、§4 |
 > | 父子通信、`open()` 命令式调用、保存后刷新 | `drawer-comm-rule.md` |
 > | 字段命名 camelCase、RESTful 接口 | `field-naming-rule.md`、`api-model-rule.md` |
 
 ---
 
-## 1. 骨架与抽屉属性
+## 1. 骨架与容器属性
 
-### 1.1 模板骨架
+### 1.0 先判容器（强制）
+
+按 `form-drawer-card-rule.md` §0 数出 `N`（可见表单项数）与 `L`（通栏例外项数）：
+
+| 判定 | 容器 | 尺寸 |
+|---|---|---|
+| `N ≤ 6` 且 `L ≤ 1` | `el-dialog` | `width="420px"`（`N ≤ 3`）/ `width="560px"`（`N = 4–6`），骨架见 `form-drawer-card-rule.md` §1.1 |
+| `N ≥ 7` 或 `L ≥ 2` | `el-drawer` | 按 `W = N − L` 选 `50%` / `75%` / `90%` |
+
+> `el-dialog` 与 `el-drawer` 契约同构（`v-model` / `destroy-on-close` / `@closed` / `#footer`），父级 `open()` / `setData()` 零改动；对话框内不做卡片分区、一律单列。
+
+### 1.1 模板骨架（抽屉）
 
 ```html
 <el-drawer
@@ -64,7 +75,7 @@
 
 | 属性 | 值 | 说明 |
 |---|---|---|
-| `size` | `"75%"` | 百分比档位字符串写法；一行三格默认 `75%`，档位表见 `drawer-layout-rule.md` §4 |
+| `size` | `"50%"` / `"75%"` / `"90%"` | 由 `W` 判定：`1–8` → 窄 `50%`、`9–16` → 中 `75%`、`≥17` → 宽 `90%`（`form-drawer-card-rule.md` §2）；禁止 px 与数字绑定 |
 | `direction` | `"rtl"` | 从右侧滑出 |
 | `destroy-on-close` | — | 关闭时销毁组件 |
 | `@closed` | `$emit('closed')` | 关闭后通知父组件 |
@@ -144,6 +155,19 @@ export default { components: { DictSelect, DictRadio } };
 ```
 
 > 状态字段优先 `dict-radio`；`dict-radio` 的值经 `setData` 时需 `String()` 转换。
+> `dict-code` 一律引用模块 `dict.js` 的编码常量（见 `dict-rule.md` §5），不得写字面量。
+
+### 2.3.1 字典值只读展示（view / 详情 / 卡片头）
+
+只读态不要用 `el-tag` + `$DICT.getDictName(...)`，统一用全局组件：
+
+```html
+<scDictLabel :dict-code="sourceTypeDictCode" :value="form.sourceType" variant="outline" />
+```
+
+- 卡片头 / 详情：`variant="outline"`（对齐旧 `el-tag effect="plain"`）；
+- 嵌在句子里：`variant="text"` + `:dot="false"`；
+- 组件已全局注册，无需 `import`；完整契约见 `dict-rule.md` §3。
 
 ### 2.4 sc-date-picker（日期）
 
@@ -354,18 +378,19 @@ emits: ["success", "closed"],
 
 | # | 要求 |
 |---|---|
-| ✅ | 表单必须用 `el-drawer`；单实体轻量共用弹窗可用共用 `el-dialog`（见 `drawer-layout-rule.md` §4） |
-| ✅ | `size="75%"` + `direction="rtl"` + `destroy-on-close` + `@closed` 四项齐全 |
-| ✅ | 卡片化分区、一行三格、通栏例外、组件白名单、样式块一律照 `form-drawer-card-rule.md` 执行，本文件不另立标准 |
+| ✅ | 容器按 `form-drawer-card-rule.md` §0 判定：`N ≤ 6` 且 `L ≤ 1` 用 `el-dialog`，否则用 `el-drawer` |
+| ✅ | 抽屉四项齐全：`size`（`50%`/`75%`/`90%` 按 `W`）+ `direction="rtl"` + `destroy-on-close` + `@closed`；对话框四项：`width`（`420px`/`560px`）+ `destroy-on-close` + `:close-on-click-modal="false"` + `@closed` |
+| ✅ | 卡片分区（抽屉 `N ≥ 9` 时 2–3 张）、列数（按 `W` 一/两/三列）、通栏例外、组件白名单、样式块一律照 `form-drawer-card-rule.md` 执行 |
 | ✅ | 加载 `el-form` 的 `el-main` 必须 `class="nopadding"`（`el-form` 直接挂 `el-drawer` 时不需要） |
 | ✅ | 每个表单必须支持 add / mod / view 三模式；view 态禁用表单 + 隐藏保存按钮 |
 | ✅ | 数字组件 `el-input-number` + `controls-position="right"` + `:min="0"` |
 | ✅ | `DictSelect` / `DictRadio` / `ScDatePicker` 必须手动导入注册；日期一律 kebab-case |
+| ✅ | 字典值只读展示用全局 `<sc-dict-label>`（不用 `el-tag` + `$DICT.getDictName`），编码取 `dict.js` 常量 |
 | ✅ | 日期段必须实现提交拆分 / 回填合并 |
 | ✅ | submitData **显式逐字段构造**，禁止 `{...this.form}`；setData **显式逐字段赋值**，禁止 `{...data}` |
 | ✅ | mod 用 `PUT` 且必须带主键；创建人/更新人由后端填充，前端不传 |
 | ✅ | 必须在 `emits` 声明 `success` 与 `closed` |
-| ❌ | 禁止 `label-position="top"`、禁止 `:span="12/16"` 两列、禁止整表退回 `:span="24"` 单列（通栏例外除外） |
+| ❌ | 禁止 `label-position="top"`；禁止列数与档位错配（`50%` 配两列、`75%` 配三列）；禁止在应并排的卡片里整卡退回单列（通栏例外除外） |
 | ❌ | 禁止自绘 `el-upload`、自研上传/选择器、使用未全局注册的 `ScFileUpload` |
 | ❌ | 禁止 view 态显示保存按钮或保留可编辑表单 |
 | ❌ | 禁止使用 snake_case 字段名 |

@@ -3,42 +3,62 @@
 		<el-container direction="vertical">
 			<!-- # 第一层：头部 Tab —— 可选。本例无「同一实体多视图」需求，整层省略 -->
 
-			<!-- # 第二层：检索条件（5 个字段 > 3 → 两行：3 + 2，末行空缺在行尾；须渲染展开/收起） -->
-			<div class="search-wrap">
-				<!-- # 第1行 - 常显条件（满 3 个） -->
-				<el-row :gutter="20" style="margin-bottom: 10px;">
-					<el-col :span="8">
-						<el-input v-model="search.taxName" placeholder="税率名称" clearable @keyup.enter="upsearch">
-							<template #prefix>
-								<span class="prefix-label">税率名称</span>
-							</template>
+			<!-- # 第二层：检索条件（配置驱动：全部条件由 searchFields.js 声明，同一个 el-row 内 v-for 渲染，
+			     每行 3 格自动换行，row-gap 保留行间距；增删 / 隐藏字段整体重排，行内不留缺格） -->
+			<div class="search-wrap search-wrap--dynamic">
+				<el-row :gutter="20" class="search-fields">
+					<el-col
+						v-for="(field, index) in visibleSearchFields"
+						:key="field.key"
+						:span="8"
+						:class="{ 'default-hide': !searchExpanded && index >= 3 }"
+					>
+						<el-input v-if="field.type === 'input'" v-model="search[field.key]" :placeholder="field.placeholder" clearable @keyup.enter="upsearch">
+							<template #prefix><span class="prefix-label">{{ field.label }}</span></template>
 						</el-input>
-					</el-col>
-					<el-col :span="8">
-						<el-input v-model="search.taxCode" placeholder="税率编码" clearable @keyup.enter="upsearch">
-							<template #prefix>
-								<span class="prefix-label">税率编码</span>
-							</template>
-						</el-input>
-					</el-col>
-					<el-col :span="8">
+						<el-select
+							v-else-if="field.type === 'select'"
+							v-model="search[field.key]"
+							:placeholder="field.placeholder"
+							filterable
+							clearable
+							style="width: 100%;"
+						>
+							<template #prefix><span class="prefix-label">{{ field.label }}</span></template>
+							<el-option
+								v-for="item in options[field.optionsKey] || []"
+								:key="item[field.optionValue]"
+								:label="item[field.optionLabel]"
+								:value="item[field.optionValue]"
+							/>
+						</el-select>
 						<dict-select
-							dict-code="disabled_status"
-							v-model="search.taxStatus"
-							placeholder="状态"
+							v-else-if="field.type === 'dict'"
+							v-model="search[field.key]"
+							:dict-code="field.dictCode"
+							:placeholder="field.placeholder"
 							clearable
 							style="width: 100%;"
 							need-prefix
-							prefix="状态"
+							:prefix="field.label"
 						></dict-select>
-					</el-col>
-				</el-row>
-
-				<!-- # 第2行 - 可折叠条件（本行 2 个，空缺落在行尾） -->
-				<el-row :gutter="20" style="margin-bottom: 10px;" :class="{'default-hide': !searchExpanded}">
-					<el-col :span="8">
+						<el-cascader
+							v-else-if="field.type === 'cascader'"
+							v-model="search[field.key]"
+							:options="options[field.optionsKey] || []"
+							:props="field.props"
+							:placeholder="field.placeholder"
+							:collapse-tags="field.multiple"
+							:collapse-tags-tooltip="field.multiple"
+							clearable
+							filterable
+							style="width: 100%;"
+						>
+							<template #prefix><span class="prefix-label">{{ field.label }}</span></template>
+						</el-cascader>
 						<sc-date-picker
-							v-model="search.createTimeRange"
+							v-else-if="field.type === 'daterange'"
+							v-model="search[field.key]"
 							type="daterange"
 							range-separator="至"
 							start-placeholder="开始日期"
@@ -47,19 +67,20 @@
 							style="width: 100%;"
 							clearable
 							need-prefix
-							prefix="创建时间"
+							:prefix="field.label"
 						/>
-					</el-col>
-					<el-col :span="8">
-						<el-input v-model="search.taxRemark" placeholder="备注" clearable @keyup.enter="upsearch">
-							<template #prefix>
-								<span class="prefix-label">备注</span>
-							</template>
-						</el-input>
+						<el-input-number
+							v-else-if="field.type === 'number'"
+							v-model="search[field.key]"
+							:placeholder="field.placeholder"
+							style="width: 100%;"
+							clearable
+							controls-position="right"
+						></el-input-number>
 					</el-col>
 				</el-row>
 
-				<!-- # 末行：搜索 + 重置 +（展开/收起，仅 searchCollapsible 为 true 时渲染） -->
+				<!-- # 末行：搜索 + 重置 +（展开/收起，仅可见条件 > 3 时渲染） -->
 				<el-row :gutter="20">
 					<el-col :span="24">
 						<div style="display: flex;">
@@ -153,6 +174,8 @@
 import save from "./save";
 import DictSelect from "@/components/DictSelect/index.vue";
 import ScDatePicker from "@/components/ScDatePicker/index.vue";
+// 检索条件配置（单一事实来源）：落地时把 search-fields-demo.js 复制到模块目录改名 searchFields.js
+import { SEARCH_FIELDS, createSearch } from "./search-fields-demo";
 
 export default {
 	name: "platform-base-setting-tax-rate",
@@ -167,24 +190,23 @@ export default {
 				save: false,
 			},
 			apiObj: this.$API.system.taxRate.list,
-			// search 里只放检索条件字段，不放其它状态 —— searchCollapsible 依赖这一约定
-			search: {
-				// 第1行（常显，满 3 个），字段名必须 camelCase
-				taxName: "",
-				taxCode: "",
-				taxStatus: null,
-				// 第2行（可折叠）
-				createTimeRange: null,
-				taxRemark: "",
-			},
+			// 下拉数据源：select / cascader 字段的 optionsKey 指向这里（本例无此类字段，留空骨架）
+			options: {},
+			// search 初始值由配置派生，禁止手写第二份字面量
+			search: createSearch(),
+			// 展开状态常驻声明：可见条件数动态变化，折叠骨架自动适配
 			searchExpanded: false,
 		};
 	},
 	computed: {
-		// 检索条件超过一行（3 个）才需要折叠；条件增减后自动生效
-		// 若裁到 ≤ 3 个：删掉第2行 el-row、展开/收起按钮、searchExpanded、本 computed 与 .default-hide 样式
+		// 可见检索条件：按 hiddenKey 过滤（与表格列 showField 同口径）；
+		// 本 demo 无隐藏机制直接返回全量；有隐藏清单的页面改为 filter(field => !field.hiddenKey || this.showField(field.hiddenKey))
+		visibleSearchFields() {
+			return SEARCH_FIELDS;
+		},
+		// 可见条件 > 3 才需要折叠；动态裁剪到 ≤ 3 时展开入口自动消失，无需手改模板
 		searchCollapsible() {
-			return Object.keys(this.search).length > 3;
+			return this.visibleSearchFields.length > 3;
 		},
 	},
 	methods: {
@@ -259,41 +281,22 @@ export default {
 			}
 		},
 		/**
-		 * 重置搜索条件：所有字段回初始值，再重载表格
+		 * 重置搜索条件：初始值由配置派生（createSearch），再清空参数重载表格
 		 */
 		resetSearch() {
-			this.search = {
-				taxName: "",
-				taxCode: "",
-				taxStatus: null,
-				createTimeRange: null,
-				taxRemark: "",
-			};
+			this.search = createSearch();
 			this.searchExpanded = false;
 			this.$refs.table.upData({});
 		},
 		/**
-		 * 搜索：状态单值转 List，日期范围数组转逗号分隔字符串，空值不传
+		 * 搜索：遍历可见字段按 normalize 折算入参（空值收敛 / 单值转 List / 区间拼串都在配置里），
+		 * 被隐藏的字段不下发；禁止 {...this.search} 直传
 		 */
 		upsearch() {
-			const params = { ...this.search };
-			// 状态查询：单值转 List
-			if (params.taxStatus === null || params.taxStatus === '') {
-				delete params.taxStatus;
-			} else {
-				params.taxStatusList = [params.taxStatus];
-				delete params.taxStatus;
-			}
-			// 日期范围数组转逗号分隔字符串
-			if (params.createTimeRange && Array.isArray(params.createTimeRange)) {
-				params.createTimeRange = params.createTimeRange.join(',');
-			} else {
-				delete params.createTimeRange;
-			}
-			// 空字符串条件不下发
-			if (!params.taxName) delete params.taxName;
-			if (!params.taxCode) delete params.taxCode;
-			if (!params.taxRemark) delete params.taxRemark;
+			const params = {};
+			this.visibleSearchFields.forEach(field => {
+				params[field.paramKey || field.key] = field.normalize(this.search[field.key]);
+			});
 			this.$refs.table.upData(params);
 		},
 		/**
@@ -318,11 +321,34 @@ export default {
 
 <style scoped>
 /* 标准样式块：逐字复制 style-css-rule.md §1，再按本页实际层数裁剪。
-   本例第一层无 Tab，故不含 .page-tabs；若加了 Tab 层须补上。 */
+   本例第一层无 Tab，故不含 .page-tabs；若加了 Tab 层须补上。
+   配置驱动检索区下 .search-wrap--dynamic / .search-fields / .default-hide 常驻不裁剪。 */
 .search-wrap {
 	width: 100%;
 	padding: 10px 15px;
 	box-sizing: border-box;
+}
+/* 配置驱动检索区模式标识——左缘 3px 主色圆角竖条（落在左 padding 留白内，不占控件位），
+   明显但隐蔽，用于与旧版手写固定行检索区区分；容器挂 search-wrap--dynamic 修饰类 */
+.search-wrap--dynamic {
+	position: relative;
+}
+.search-wrap--dynamic::before {
+	content: '';
+	position: absolute;
+	left: 5px;
+	top: 10px;
+	bottom: 10px;
+	width: 3px;
+	border-radius: 2px;
+	background: var(--el-color-primary);
+	opacity: 0.6;
+}
+/* 全部条件同一 el-row 自动换行：row-gap 保留行间距（行与行不能贴死），
+   条件区与按钮行之间留 10px */
+.search-fields {
+	row-gap: 10px;
+	margin-bottom: 10px;
 }
 .prefix-label {
 	color: #909399;
@@ -331,6 +357,7 @@ export default {
 	display: flex;
 	align-items: center;
 }
+/* 检索条件折叠：收起时第 4 个起隐藏 */
 .default-hide {
 	display: none;
 }

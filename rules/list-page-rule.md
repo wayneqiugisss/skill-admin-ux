@@ -9,7 +9,7 @@
 | 层级 | 名称 | 载体 | 是否必需 |
 |---|---|---|---|
 | 第一层 | **头部 Tab** | `el-tabs`（`.page-tabs`） | 可选 — 仅当同一页需要在多个视图间切换时使用 |
-| 第二层 | **检索条件** | `div.search-wrap` | 必需（无任何检索条件时可整层省略） |
+| 第二层 | **检索条件** | `div.search-wrap.search-wrap--dynamic`（配置驱动，带模式标识） | 必需（无任何检索条件时可整层省略） |
 | 第三层 | **按钮** | `el-header` > `.left-panel` | 可选 — 有新增/批量操作等按钮时使用 |
 | 第四层 | **表格** | `el-main.nopadding` > `scTable` | 必需 |
 
@@ -17,7 +17,7 @@
 > - 「搜索 / 重置 / 展开收起」属于**第二层**（贴在检索条件尾部），**不是**第三层。第三层只放业务动作按钮（新增、批量删除、导入导出等）。
 > - 第一层 Tab 用于切换**同一实体的不同视图**（如「待审核 / 已通过 / 已驳回」、「全部 / 我创建的」）。若切换的是不同实体，应拆成两个菜单页，不要用 Tab 硬塞。
 > - Tab 切换只改变检索参数并 `reload()` 表格，**不得**为每个 Tab 复制一份表格或一份检索区。
-> - **检索条件 ≤ 2 个时，第二层与第三层合并为一行**：单个 `el-header`，功能按钮置左、筛选条件置右。此时不再有独立的 `.search-wrap`，也**不走** `el-row` / `el-col` 三格栅格。这是四层结构唯一的合并例外，详见 **§2.5**。
+> - 检索条件统一走**配置驱动动态形态**（§2）：`searchFields.js` 声明字段 + 单个 `el-row` v-for 渲染，任意条件数同一形态，不再有「≤2 个条件二三层合并」的例外。
 
 ### 1.2 模板骨架
 
@@ -26,11 +26,9 @@ el-container
   └─ el-container direction="vertical"  ← 【强制】必须显式设置 direction="vertical"
        ├─ 第一层：头部 Tab（div.page-tabs）        ← 可选
        │    └─ el-tabs v-model="activeTab" @tab-change="onTabChange"
-       ├─ 第二层：检索条件（div.search-wrap）
-       │    ├─ 第1行 el-row：3个筛选条件（常显）
-       │    ├─ 第2行 el-row：3个筛选条件（可折叠，仅条件数 > 3 时存在）
-       │    ├─ 第N行 el-row：3个筛选条件（同上）
-       │    └─ 末行 el-row：搜索 + 重置 +（展开/收起，仅条件数 > 3 时渲染）
+       ├─ 第二层：检索条件（div.search-wrap.search-wrap--dynamic，左缘主色竖条模式标识）
+       │    ├─ el-row.search-fields：v-for 全部可见条件（每行 3 格自动换行，row-gap 保留行间距）
+       │    └─ 末行 el-row：搜索 + 重置 +（展开/收起，仅可见条件数 > 3 时渲染）
        ├─ 第三层：按钮（el-header）                ← 可选，无按钮时整层省略
        │    └─ .left-panel（新增按钮、批量操作等）
        └─ 第四层：表格（el-main.nopadding）
@@ -43,22 +41,6 @@ el-container
 > **强制要求**：内层 `<el-container>` 必须添加 `direction="vertical"` 属性，固定垂直布局。原因是 Element Plus 的 `<el-container>` 默认根据直接子元素自动检测方向：如果子元素包含 `<el-header>` 或 `<el-footer>` 则自动为 `column`，否则为 `row`。当第三层 `el-header` 被省略时，会导致检索区与表格区意外左右排列。`direction="vertical"` 可消除这种隐式依赖。
 
 > **左右布局（分类面板 + 列表）**：若业务存在稳定的分类维度（标签组→标签、单位类型→单位、部门→人员），整个页面改为「左分类 + 右列表」，左侧面板一律按 **§11** 实现，右侧仍是本节四层结构、时序完全沿用以下规范。
-
-> **合并骨架（检索条件 ≤ 2 个时）**：第二层与第三层塌缩为同一个 `el-header`，页面从四层变三层。**功能置左、筛选置右**：
->
-> ```
-> el-container
->   └─ el-container direction="vertical"
->        ├─ 第一层：头部 Tab（div.page-tabs）        ← 仍可选，规则不变
->        ├─ 第二层+第三层合并（el-header）
->        │    ├─ .left-panel            ← 功能按钮（新增/批量操作），靠左
->        │    └─ .right-panel > .right-panel-search
->        │         ├─ 筛选组件 1..2 个   ← 靠右
->        │         └─ 搜索按钮          ← 固定在最右
->        └─ 第四层：表格（el-main.nopadding）> scTable
-> ```
->
-> 完整写法、间距与宽度约定、以及与 prefix / 重置按钮两条红线的豁免关系见 **§2.5**。
 
 
 ### 1.3 第一层：头部 Tab（可选）
@@ -102,67 +84,94 @@ methods: {
 
 ---
 
-## 2. 第二层：检索条件规范
+## 2. 第二层：检索条件规范（配置驱动动态检索区）
 
-### 2.1 一行三个（强制）
+> 本节为头部检索条件的**唯一处理方案**，取代旧版「手写多个 el-row 按行切条件」与「≤2 个条件二三层合并」两套形态。真实参照：`eXproduct/products/manage/index.vue` + 同目录 `searchFields.js`；可复制代码：`demos/search-fields-demo.js` + `demos/index.vue`。
 
-**检索条件每行恰好 3 个，按声明顺序从左到右连续填满，不允许中间留空。**
+### 2.1 单一事实来源：searchFields.js（强制）
 
-- 每行 `<el-row :gutter="20" style="margin-bottom: 10px;">`
-- 每个条件占 `<el-col :span="8">` —— `span` 固定为 8（24 ÷ 3），**禁止**写成 6 / 12 / 16 / 24
-- 条件按 `search` 对象里的声明顺序每 3 个切一行
-- **只有最后一行允许少于 3 个，且空缺只能落在行尾（右侧）**；中间行必须满 3 个
-- **禁止**用空 `el-col` 占位、禁止空出中间格把条件往后挪
+**全部检索条件声明在 index.vue 同目录的 `searchFields.js`**，导出 `SEARCH_FIELDS`（字段描述数组）与 `createSearch()`（初始值工厂）。页面模板、展开收起、重置初始值、搜索入参构造全部由这份配置派生——**增删一个字段只改这一个文件**，布局自动整体重排，行内永不留缺格。
 
-```html
-<!-- ✅ 正确：4 个条件 → 第1行满 3 个，第2行 1 个（空缺在行尾） -->
-<el-row :gutter="20" style="margin-bottom: 10px;">
-	<el-col :span="8"><!-- 条件1 --></el-col>
-	<el-col :span="8"><!-- 条件2 --></el-col>
-	<el-col :span="8"><!-- 条件3 --></el-col>
-</el-row>
-<el-row :gutter="20" style="margin-bottom: 10px;" :class="{'default-hide': !searchExpanded}">
-	<el-col :span="8"><!-- 条件4 --></el-col>
-</el-row>
+字段描述契约：
 
-<!-- ❌ 错误：第1行只放 2 个，中间空一格 -->
-<el-row :gutter="20">
-	<el-col :span="8"><!-- 条件1 --></el-col>
-	<el-col :span="8"><!-- 条件2 --></el-col>
-	<el-col :span="8"><!-- 空占位 --></el-col>
-</el-row>
-<el-row :gutter="20">
-	<el-col :span="16"><!-- 条件3 拉宽补位 --></el-col>
-</el-row>
+| 键 | 必需 | 说明 |
+|---|---|---|
+| `key` | ✅ | `search` 模型键（v-model 落点），camelCase |
+| `label` | ✅ | prefix 文案（§3） |
+| `type` | ✅ | 控件类型：`input` / `select` / `dict` / `cascader` / `daterange` / `number` |
+| `placeholder` | 建议 | 占位文案（**input / number 默认「请输入」+ 字段名**，见 §3.5；`daterange` 用组件内置起止占位；`number` 不支持 prefix，靠它承载字段名） |
+| `hiddenKey` | 可选 | 内置字段隐藏清单键（与表格列 `showField` 同口径）；不配置则常显 |
+| `optionsKey` | select/cascader | 下拉数据源在页面 `options` 里的键 |
+| `optionLabel` / `optionValue` | select | 选项对象的显示名 / 值键（如 `name` / `id`） |
+| `dictCode` | dict | 字典编码，取模块 `dict.js` 常量（禁字面量，见 `dict-rule.md`） |
+| `props` | cascader | `el-cascader` 的 props（级联单选 / 父子联动多选等） |
+| `multiple` | 可选 | 级联多选标记，驱动 `collapse-tags` / `collapse-tags-tooltip` |
+| `initial` | ✅ | 重置初始值（`createSearch` 据此生成，数组自动克隆） |
+| `paramKey` | 可选 | 搜索入参键，缺省同 `key`（如 `scopeIdList` → `scopeIds`） |
+| `normalize` | ✅ | 草稿值 → 搜索入参的折算函数（空值收敛、区间拼串、单值转 List 等） |
+
+```js
+// searchFields.js —— 检索条件配置（单一事实来源）
+export const SEARCH_FIELDS = [
+	{ key: 'taxName', label: '税率名称', type: 'input', placeholder: '请输入税率名称', initial: '', normalize: value => value || null },
+	{ key: 'taxStatus', label: '状态', type: 'dict', dictCode: DISABLED_STATUS_DICT_CODE, placeholder: '状态', initial: null,
+		paramKey: 'taxStatusList', normalize: value => (value === null || value === '' ? null : [value]) },
+	{ key: 'createTimeRange', label: '创建时间', type: 'daterange', initial: null,
+		normalize: value => (value && value.length === 2 ? value.join(',') : null) }
+	// …新增 / 删除字段只改这份清单
+];
+
+// 搜索条件初始值：data 与重置共用同一份，随配置增删自动跟随，避免两处漂移
+export const createSearch = () => {
+	const search = {};
+	SEARCH_FIELDS.forEach(field => {
+		search[field.key] = Array.isArray(field.initial) ? [...field.initial] : field.initial;
+	});
+	return search;
+};
 ```
 
-> **新增 / 删除 / 调整条件后必须整体重排**：不能只在末尾追加一行，导致上一行出现空洞。重排后仍须满足「每行 3 个、只有末行可缺、缺在行尾」。
-> Code Review 时用「逐行数 `el-col`」的方式核对，任何一行数量不是 3（末行除外）即为不合格。
+> **控件类型白名单**：`input`（el-input）/ `select`（el-select + el-option）/ `dict`（dict-select）/ `cascader`（el-cascader）/ `daterange`（sc-date-picker）/ `number`（el-input-number，不支持 prefix，用 placeholder）。新增控件类型必须先在模板补齐 `v-else-if` 渲染分支并登记到本表，禁止页面绕过配置私写控件。
+> **normalize 口径**：文本 `value || null`（空串不下发）；字典 / 级联单选 `value || null`；多选数组 `value && value.length ? value : null`；日期区间 `value && value.length === 2 ? value.join(',') : null`；后端要 List 的在 normalize 里包数组并配 `paramKey`。
 
-### 2.2 容器与完整结构
+### 2.2 渲染：单个 el-row + v-for（强制）
 
-第二层容器统一使用 `class="search-wrap"`（样式见 `style-css-rule.md`），**禁止**把容器样式写成行内 `style`：
+**全部条件渲染在同一个 `el-row.search-fields` 里**，`v-for="(field, index) in visibleSearchFields"`，每格 `<el-col :span="8">` 按配置顺序自动换行（每行 3 格）：
+
+- `span` 固定 8（24 ÷ 3），**禁止** 6 / 12 / 16 / 24，禁止空 `el-col` 占位
+- **禁止手写多个 el-row 按行切条件**——增删 / 隐藏字段后 v-for 整体重排，空缺天然落在行尾，不存在「删一个字段中间缺一格」
+- **行间距必须保留**：`.search-fields { row-gap: 10px; margin-bottom: 10px; }`——换行产生的行与行之间保持 10px，不能贴死；条件区与按钮行之间同样 10px（样式见 `style-css-rule.md` §1）
+- 容器统一 `class="search-wrap search-wrap--dynamic"`，禁止行内容器 style；控件按 `field.type` 分发（完整模板见 `demos/index.vue`）
+- **模式标识必须挂**：`search-wrap--dynamic` 修饰类渲染左缘 3px 主色圆角竖条（落在左 padding 留白内，不占控件位），明显但隐蔽，用于与旧版手写固定行检索区区分——旧形态页面不带此修饰类，禁止给旧形态页面补挂（样式见 `style-css-rule.md` §1）：
 
 ```html
-<!-- # 第二层：检索条件 -->
-<div class="search-wrap">
-	<!-- # 第1行 - 常显条件（满 3 个） -->
-	<el-row :gutter="20" style="margin-bottom: 10px;">
-		<el-col :span="8">
-			<!-- 筛选组件（el-input / dict-select / sc-date-picker 等，prefix 见 §3） -->
+<!-- # 第二层：检索条件（配置驱动：全部条件同一个 el-row，每行 3 格自动换行） -->
+<div class="search-wrap search-wrap--dynamic">
+	<el-row :gutter="20" class="search-fields">
+		<el-col
+			v-for="(field, index) in visibleSearchFields"
+			:key="field.key"
+			:span="8"
+			:class="{ 'default-hide': !searchExpanded && index >= 3 }"
+		>
+			<el-input v-if="field.type === 'input'" v-model="search[field.key]" :placeholder="field.placeholder" clearable @keyup.enter="upsearch">
+				<template #prefix><span class="prefix-label">{{ field.label }}</span></template>
+			</el-input>
+			<dict-select
+				v-else-if="field.type === 'dict'"
+				v-model="search[field.key]"
+				:dict-code="field.dictCode"
+				:placeholder="field.placeholder"
+				clearable
+				style="width: 100%;"
+				need-prefix
+				:prefix="field.label"
+			></dict-select>
+			<!-- select / cascader / daterange / number 分支同构，见 demos/index.vue -->
 		</el-col>
-		<el-col :span="8"><!-- 筛选组件 --></el-col>
-		<el-col :span="8"><!-- 筛选组件 --></el-col>
 	</el-row>
 
-	<!-- # 第2行 - 可折叠条件（满 3 个；仅条件数 > 3 时才存在本行） -->
-	<el-row :gutter="20" style="margin-bottom: 10px;" :class="{'default-hide': !searchExpanded}">
-		<el-col :span="8"><!-- 筛选组件 --></el-col>
-		<el-col :span="8"><!-- 筛选组件 --></el-col>
-		<el-col :span="8"><!-- 筛选组件 --></el-col>
-	</el-row>
-
-	<!-- # 末行：搜索 + 重置 +（展开/收起，仅条件数 > 3 时渲染） -->
+	<!-- # 末行：搜索 + 重置 +（展开/收起，仅可见条件 > 3 时渲染） -->
 	<el-row :gutter="20">
 		<el-col :span="24">
 			<div style="display: flex;">
@@ -181,129 +190,73 @@ methods: {
 </div>
 ```
 
-> **行与行之间用注释分隔**，注释格式：`<!-- # 第N行 - 说明 -->`。
+### 2.3 展开 / 收起（按可见条件数动态判定）
 
-### 2.3 展开 / 收起（强制按条件数出现）
-
-**展开/收起按钮只在检索条件超过一行（即 > 3 个）时出现；条件数 ≤ 3 时必须完全不渲染。**
-
-| 条件数 | 行数 | 第 2 行起 `default-hide` | 展开/收起按钮 | `searchExpanded` / `searchCollapsible` |
-|---|---|---|---|---|
-| ≤ 3 | 1 行 | 不存在第 2 行 | **不渲染** | 都不声明 |
-| > 3 | ≥ 2 行 | 必须加 | **必须渲染** | 都必须声明 |
-
-判定统一交给 computed，条件增减后自动生效，避免「加了条件忘了改按钮」：
+判定基于**可见条件**（配置清单经隐藏清单过滤后），不是配置总数：
 
 ```js
 computed: {
-	// 检索条件超过一行（3 个）才需要折叠
+	// 可见检索条件：按 hiddenKey 过滤（与表格列 showField 同口径）；无隐藏机制的页面直接返回 SEARCH_FIELDS
+	visibleSearchFields() {
+		return SEARCH_FIELDS.filter(field => !field.hiddenKey || this.showField(field.hiddenKey));
+	},
+	// 可见条件 > 3 才需要折叠；动态裁剪到 ≤ 3 时展开入口自动消失、条件全量展示
 	searchCollapsible() {
-		return Object.keys(this.search).length > 3;
+		return this.visibleSearchFields.length > 3;
 	}
-},
-data() {
-	return {
-		// search 里只放检索条件字段，不放其它状态；searchCollapsible 依赖这一约定
-		search: { /* ... */ },
-		searchExpanded: false,
-	};
 }
 ```
 
-> **≤ 3 个条件时的写法**：删掉第 2 行 `el-row`、删掉展开/收起 `el-button`、data 里删掉 `searchExpanded`、computed 里删掉 `searchCollapsible`，`<style>` 里的 `.default-hide` 也一并删除。不要留「按钮渲染了但点了没反应」的死结构。
->
-> **> 3 个条件时的写法**：第 2 行起每行都挂 `:class="{'default-hide': !searchExpanded}"`，按钮挂 `v-if="searchCollapsible"`。
+| 可见条件数 | 展示 | 展开/收起按钮 |
+|---|---|---|
+| ≤ 3 | 单行全显 | `v-if="searchCollapsible"` 自动不渲染 |
+| > 3 | 收起时前 3 个，其余 `default-hide` | 自动渲染 |
 
-### 2.4 搜索按钮与重置按钮
+> 与旧规范的关键差异：`searchExpanded` / `searchCollapsible` / `.default-hide` 是**常驻骨架**，条件数变化（含运行时隐藏清单回填）自动适配，**不再需要**「≤3 个时手工删按钮 / 删 computed / 删样式」——配置驱动下条件数本来就是动态的。
+> 收起态判定统一写 `:class="{ 'default-hide': !searchExpanded && index >= 3 }"`（index 是可见清单内的序号，不是配置序号）。
 
-- 搜索按钮 `type="primary"` + `icon="el-icon-search"`，绑定 `upsearch`
-- **重置按钮必须紧跟在搜索按钮后面**，`icon="el-icon-refresh"`，绑定 `resetSearch`
-- `resetSearch` 必须把 `search` 对象**所有字段**重置为初始值，再调 `this.$refs.table.upData({})` 重新加载表格
-- 展开/收起按钮排在重置按钮之后，且它是第二层里唯一允许 `type="text"` 的按钮
+### 2.4 搜索 / 重置与入参构造（配置派生）
 
-> 本节适用于**独立 `.search-wrap` 形态**（条件数 ≥ 3）。条件数 ≤ 2 走 §2.5 合并形态时，重置按钮与展开/收起按钮均不渲染。
+- 搜索按钮 `type="primary"` + `icon="el-icon-search"`；**重置按钮必须紧跟其后**，`icon="el-icon-refresh"`；展开/收起排最后，是第二层唯一允许 `type="text"` 的按钮
+- 入参构造**遍历可见字段按 `normalize` 折算**，禁止 `{...this.search}` 直传——被隐藏的字段不下发，新增字段只需在配置里声明 normalize：
 
-### 2.5 检索条件 ≤ 2 个：与第三层按钮合并为一行（强制）
-
-**当检索条件数量 ≤ 2 个时，第二层与第三层必须合并为同一行 `el-header`：功能按钮置左、筛选条件置右。**
-
-条件很少时单独占两层会留大片空白，合并后整个检索+操作区压到一行，表格上移，是本项目既有的统一做法。
-
-#### 2.5.1 三档形态对照
-
-判定与 §2.3 折叠判定同源，都数 `Object.keys(this.search).length`：
-
-| 条件数 | 形态 | 容器 | 栅格 | 展开/收起 | 重置按钮 | prefix |
-|---|---|---|---|---|---|---|
-| **≤ 2** | **二三层合并一行** | `el-header` > `.left-panel` + `.right-panel` > `.right-panel-search` | **不用** `el-row`/`el-col` | 不渲染 | **不渲染** | **不用**，改 `placeholder` |
-| 3 | 独立第二层单行 | `div.search-wrap` | `el-col :span="8"` ×3 | 不渲染 | 渲染 | 必须 |
-| > 3 | 独立第二层多行 | `div.search-wrap` | `el-col :span="8"`，每行 3 个 | 必须渲染 | 渲染 | 必须 |
-
-#### 2.5.2 标准写法
-
-```html
-<el-container direction="vertical">
-	<!-- # 第二层 + 第三层合并：功能置左、筛选置右（仅条件数 ≤ 2 时使用） -->
-	<el-header>
-		<div class="left-panel">
-			<el-button type="primary" icon="el-icon-plus" @click="add">新增</el-button>
-			<!-- 可扩展：批量删除、导出、导入等业务动作按钮 -->
-		</div>
-		<div class="right-panel">
-			<div class="right-panel-search">
-				<dict-select
-					dict-code="sys_portal_type"
-					v-model="search.portalType"
-					placeholder="所属端"
-					clearable
-					style="width: 160px;"
-				></dict-select>
-				<el-input
-					v-model="search.keyword"
-					placeholder="名称"
-					clearable
-					@keyup.enter="upsearch"
-				></el-input>
-				<el-button type="primary" icon="el-icon-search" @click="upsearch"></el-button>
-			</div>
-		</div>
-	</el-header>
-
-	<!-- # 第四层：表格 -->
-	<el-main class="nopadding">
-		<scTable ref="table" :apiObj="apiObj" row-key="id" stripe></scTable>
-	</el-main>
-</el-container>
+```js
+// 读取草稿条件（仅点「搜索」时调用）：隐藏字段不入参
+buildFilters() {
+	const filters = {};
+	this.visibleSearchFields.forEach(field => {
+		filters[field.paramKey || field.key] = field.normalize(this.search[field.key]);
+	});
+	return filters;
+},
+upsearch() {
+	this.$refs.table.upData(this.buildFilters());
+},
+// 重置：初始值由配置派生，禁止手写第二份字面量
+resetSearch() {
+	this.search = createSearch();
+	this.searchExpanded = false;
+	this.$refs.table.upData({});
+}
 ```
 
-对应 `<style scoped>` **一条都不用写** —— 合并形态的布局与间距全部由全局样式提供（见 2.5.3），页面里再写 `.left-panel` / `.right-panel` / `.right-panel-search` 属于重复定义。
+- 与字段绑定的搜索前提示（如「父级品类精确匹配」警告）须先判该字段是否可见，隐藏时跳过
+- 本地数据表格（无 apiObj）同口径：`buildFilters` 结果存入已生效筛选态，供列表与 Tab 计数共用
 
-#### 2.5.3 强制约定
+### 2.5 动态字段来源与增删流程
 
-- **左右分工不用自己写**：全局 `.el-header { display:flex; justify-content:space-between; align-items:center; padding:13px 15px }`（`src/style/fix.scss:31`）已把两个 panel 顶到两端；`.left-panel` / `.right-panel` 的 `display:flex; align-items:center` 由 `fix.scss:32-33` 提供，`.right-panel` 子元素间距由 `fix.scss:34` 提供。**页面内禁止重写这些 flex 样式**。
-- **禁止给 `el-header` 加 `style="height: auto;"`**：合并行只有一排控件，用 Element Plus 默认 60px 高度即可。`height: auto` 是独立 `.search-wrap` 多行形态才需要的（§4.1）。
-- **组件间距不用自己写**：全局 `.right-panel-search > * + * { margin-left: 10px }`（`src/style/app.scss:79-80`）已负责筛选组件之间、以及组件与搜索按钮之间的间距。**禁止**再补 `margin-right` / `margin-left` 凑间距（历史页面出现过 `style="width: 160px; margin-right: 8px;"`，其中 `margin-right` 是多余的，新页面不要照抄）。
-- **只有宽度需要行内声明**：`dict-select` / `sc-date-picker` 等下拉与日期组件给固定 `style="width: 160px;"`（区间日期可放宽到 `220px`～`240px`），`el-input` 用组件默认宽度即可，不要写 `width: 100%`（合并行不是栅格，`100%` 会撑爆 `.right-panel`）。
-- **搜索按钮固定在最右**，`type="primary"` + `icon="el-icon-search"`、只留图标不带文字，绑定 `upsearch`；文本类筛选组件加 `@keyup.enter="upsearch"` 回车即搜。
-- **`.left-panel` 只放业务动作按钮**，不要把搜索/重置挪进来；没有业务按钮时整个 `.left-panel` 省略，`.right-panel` 会被 `space-between` 推到左侧，此时改为在 `.right-panel` 上补 `margin-left: auto` 保持筛选靠右。
-- **每个筛选组件必须 `clearable`** —— 合并形态不渲染重置按钮，`clearable` 是唯一的清空手段。
-
-#### 2.5.4 两条红线的豁免（重要）
-
-合并形态是**唯一**可以豁免下面两条红线的场景，Code Review 时不要按红线判不合格：
-
-| 红线 | 独立 `.search-wrap` 形态 | 合并形态（≤ 2 条件） | 豁免理由 |
-|---|---|---|---|
-| 红线 2 / §3：筛选组件必须加 prefix | 必须 | **不加 prefix，改用 `placeholder`** | 一行里要塞下按钮 + 筛选 + 搜索，prefix 文字与 placeholder 语义重复且挤占宽度 |
-| 红线 22 / §2.4：搜索后必须紧跟重置 | 必须 | **不渲染重置按钮** | 条件 ≤ 2 且全部 `clearable`，逐个清空成本低于多放一个按钮 |
-
-> 条件数从 2 增到 3 时，必须整体改回独立 `.search-wrap` 形态：补回 `el-row`/`el-col :span="8"` 栅格、补回 prefix、补回重置按钮，并删掉 `el-header` 合并行。**不能只在合并行里再塞一个组件**，一行放 3 个筛选 + 搜索 + 功能按钮会溢出。
->
-> 反向同理：条件从 3 减到 2，必须塌缩成合并行，不能留着只有 2 个 `el-col` 的 `.search-wrap` 空占一行。
-
-#### 2.5.5 现有参照页面
-
-本项目已按此形态实现的页面（可直接对照抄结构）：`setting/position`、`setting/role`、`setting/dept`、`setting/tenant`、`setting/fileConfig`、`setting/message/smsTemplate`、`setting/message/site`、`setting/message/mailAccount`。其中 **`setting/role/index.vue` 是「2 个筛选条件（dict-select + el-input）+ 新增按钮」的标准样例**。
+1. **增删字段**：只改 `searchFields.js`（布局 / 折叠 / 重置 / 入参全自动跟随）；下拉数据源在页面 `options` 补对应 `optionsKey`。
+2. **隐藏裁剪**：`hiddenKey` 与表格列 `showField` 同口径（租户模板 prop ∪ 模板 DB 配置）；隐藏后布局自动重排、入参自动剔除。隐藏清单来自接口时，`visibleSearchFields` 必须依赖响应式来源（data / computed），保证回填后视图跟随。
+3. **后端下发动态字段**：把接口返回映射成同构字段描述（key / label / type / options / initial / normalize）后并入清单，渲染层零改动。
+4. **存量页面**：admin/src/views 全量 index.vue 检索区已完成配置驱动改造（117 页，含双容器/页签裁剪等特殊形态），一律按本节口径维护，**禁止回退为手写固定行**；旧形态（手写多 el-row、≤2 条件合并行）仅作为历史参照。
+5. **特殊形态映射**（存量改造已验证的口径）：
+   - **双检索容器**（双 Tab 各自一份检索，如 credit/deposit manage）：`searchFields.js` 导出两份清单（`ACCT_SEARCH_FIELDS` / `ADJUST_SEARCH_FIELDS`）+ 各自 `create*Search()`，另导出 `SEARCH_FIELDS` 别名指向主清单；每容器一份 `visible*SearchFields` / `*SearchCollapsible` 与展开切换，共用一个 `searchExpanded`。
+   - **控件随页签裁剪**（如 rebate/pool）：字段加 `tab: 'account'` 标记，`visibleSearchFields` 追加 `(!field.tab || field.tab === this.activeTab)` 过滤；入参需全量下发时遍历 `SEARCH_FIELDS` 而非可见清单（upData 合并语义，空值也要显式带上）。
+   - **日期拆分双键 / 复杂入参**：字段标 `skipParam: true`，循环跳过，拆分代码原样保留在入参方法内（别名展开为 `this.search.*`）。
+   - **状态 Tab spread**（`...this.tabParams`）：spread 与分页键作为初始化 extras 保留，检索字段逐键折算进 `normalize`（含 forEach 批量 Number / 单键 if 守卫）。
+   - **常驻骨架**：`searchExpanded` 必须保留在 data（模板双向绑定需响应式声明，computed 只接管可见清单/折叠判定）；≤3 条件时展开入口由 `v-if="searchCollapsible"` 自动不渲染，不手工删结构。
+   - **≤2 条件配置驱动合并行**（如 setting/role、setting/dept、customers/area、merchants/area 及其镜像 eXmerchant/base/area）：检索与第三层合并为单个 `el-header`，左 `.left-panel` 置功能按钮（普通页）或上下文提示（左右布局页的区域路径 + 计数），右 `.right-panel > .right-panel-search` 置筛选；控件仍由 `v-for visibleSearchFields` 按 `field.key` 分发（配置驱动不变，模型/重置/入参随清单跟随），搜索 + 重置按钮带文案置最右；不挂 `search-wrap--dynamic`、不写检索区页面样式（全局 fix.scss / app.scss 已覆盖），豁免 prefix 与展开收起；`searchExpanded` 仍常驻 data，`searchCollapsible` 可省。仅适用于条件稳定 ≤2 的页面，条件跨过 2↔3 时整体换回动态骨架。
+   - **normalize 纯函数红线**：`searchFields.js` 的 normalize 必须是入参 value 的纯函数——禁止引用模块外自由变量（如守卫里的 `status`）、禁止 `this.*`（模块级箭头函数 this 不指向组件）、禁止折叠成常量（`() => null` / `() => true` 会丢失条件或恒下发）；守卫逻辑（Number 归一 + 枚举判定、trim、勾选才带参）必须完整折进 `value => ...` 体内，页面入参方法里被接管的补偿块同步删除。审计探针：`normalize:\s*(\(\)\s*=>|value\s*=>\s*\(this\.)` 全仓零命中。
 
 
 ---
@@ -312,7 +265,8 @@ data() {
 
 **所有筛选组件必须使用 prefix（原生插槽或组件 props）。**
 
-> **唯一豁免**：检索条件 ≤ 2 个、走 §2.5「二三层合并一行」形态时，筛选组件**不加 prefix，改用 `placeholder`**。本节其余规则只约束独立 `.search-wrap` 形态。
+> prefix 文案由字段配置的 `label` 统一下发（`<span class="prefix-label">{{ field.label }}</span>` / `:prefix="field.label"`），不在模板里逐处硬编码；`number` 类控件不支持 prefix，用 `placeholder` 承载字段名。
+> **placeholder 口径见 §3.5**：input 类检索条件占位文案默认「请输入」+ 字段名。
 
 | 组件 | prefix 方式 | 推荐写法 |
 |---|---|---|
@@ -326,7 +280,7 @@ data() {
 ```html
 <el-input
   v-model="search.taxName"
-  placeholder="税率名称"
+  placeholder="请输入税率名称"
   clearable
   @keyup.enter="upsearch"
 >
@@ -361,7 +315,7 @@ data() {
   v-model="search.taxSort"
   :min="0"
   :step="1"
-  placeholder="排序"
+  placeholder="请输入排序"
   style="width: 100%;"
   clearable
   controls-position="right"
@@ -391,17 +345,37 @@ data() {
 
 > 日期组件**必须**使用 kebab-case `<sc-date-picker>`，禁止使用 PascalCase `<ScDatePicker>`。
 
+### 3.5 placeholder 占位文案口径（强制）
+
+**检索条件中凡是输入类控件（`el-input` / `el-input-number`），placeholder 默认加「请输入」前缀 + 字段名**，与 prefix 的字段名形成「标签 + 动作提示」的完整语义：
+
+| 控件类型 | placeholder 口径 | 示例 |
+|---|---|---|
+| `input`（el-input） | **「请输入」+ 字段名**（默认强制） | `请输入商品标题` / `请输入税率名称` |
+| `number`（el-input-number） | **「请输入」+ 字段名**（无 prefix，占位承载字段名） | `请输入排序` |
+| `select` / `dict` / `cascader` | 选择类口径不变：「全部xx」或「请选择xx」 | `全部品牌` / `请选择状态` |
+| `daterange` | 组件内置起止占位，不另配 | `开始日期` / `结束日期` |
+
+```js
+// searchFields.js —— input 类占位一律「请输入」前缀
+{ key: 'title', label: '商品标题', type: 'input', placeholder: '请输入商品标题', initial: '', normalize: value => value }
+```
+
+> - 配置驱动页面只改 `searchFields.js` 的 `placeholder`，模板 `:placeholder="field.placeholder"` 自动跟随；旧形态手写检索区的 input 同口径补齐；utils 里的检索字段工厂（如 `priceSearchFields`）与左侧面板过滤输入框同口径。
+> - **i18n 页面**：复用字段 label 的绑定改包一层公共键 `:placeholder="$t('common.inputOf', { name: field('xxx') })"`（`common.inputOf = '请输入{name}'`，与 `common.allOf` 同层）；专属占位键（`xxxPlaceholder` / `searchPlaceholder`）直接在语言包值里加前缀；禁止改 `field.*` 字段名本身（表格列头共用）。
+> - 已有「请输入」前缀的不重复叠加（禁止「请输入请输入xx」）；带业务限定的占位（如「请输入手机号 / 邮箱」）保留限定部分，只确保前缀存在。
+> - 本口径只约束**检索条件**；表单（save.vue / 抽屉）内的 placeholder 不受此条强制。
+
 ---
 
 ## 4. 第三层：按钮（操作栏，可选）
 
 > 第三层 `el-header` 为**可选结构**：有新增、批量操作等按钮时添加，无按钮时直接省略。
 > 本层只放**业务动作按钮**；「搜索 / 重置 / 展开收起」属于第二层，不要挪到这里。
-> **例外**：检索条件 ≤ 2 个时二三层合并，搜索按钮随筛选组件一起进 `el-header` 的 `.right-panel-search`，此时**不写** `style="height: auto;"` —— 详见 §2.5，合并形态的完整写法以 §2.5.2 为准，不要用本节 4.1 的骨架。
 
 ### 4.1 有操作按钮时（新增、批量操作等）
 
-适用条件：检索条件 **≥ 3 个**，第二层是独立的 `.search-wrap`。
+第二层为独立 `.search-wrap`（配置驱动检索区，§2）。
 
 ```html
 <el-header style="height: auto;">
@@ -415,15 +389,6 @@ data() {
 ### 4.2 无操作按钮时（省略 el-header）
 
 不添加 `el-header`，第二层 `.search-wrap` 下方直接接第四层 `el-main.nopadding` 即可。此时内层 `<el-container>` 的 `direction="vertical"` 尤其不能省（§1.2）。
-
-### 4.3 检索条件 ≤ 2 个时（二三层合并，不单独写第三层）
-
-不再有「只有 `.left-panel` 的第三层」，功能按钮与筛选条件同处一个 `el-header`，骨架见 **§2.5.2**。要点复述：
-
-- 无 `style="height: auto;"`
-- 无 `.search-wrap`、无 `el-row`/`el-col`
-- `.left-panel` 功能按钮置左，`.right-panel` > `.right-panel-search` 筛选 + 搜索按钮置右
-- 页面 `<style scoped>` 里不写任何相关样式，全局已覆盖
 
 ---
 
@@ -513,6 +478,32 @@ data() {
 
 > 系统通用字段使用 camelCase：`createTime`、`updateTime`、`createBy`、`updateBy`。
 
+### 5.7 字典值列（状态 / 类型 / 来源）
+
+字典值的文案与颜色**不写在页面里**，统一用全局组件 `<sc-dict-label>`（无需 import）：
+
+```javascript
+// columns.js —— 字典列只标 dictCode，编码引用模块 dict.js 的常量
+import { SOURCE_AUTH_STATUS_DICT_CODE, SOURCE_TYPE_DICT_CODE } from '../../customers/source/dict';
+
+export const tableColumns = [
+	{ prop: 'custName', field: 'custName', minWidth: 240 },
+	{ prop: 'sourceType', field: 'sourceType', width: 110, align: 'center', dictCode: SOURCE_TYPE_DICT_CODE },
+	{ prop: 'certStatus', field: 'certStatus', width: 110, align: 'center', dictCode: SOURCE_AUTH_STATUS_DICT_CODE }
+];
+```
+
+```html
+<el-table-column v-for="col in tableColumns" :key="col.prop" :prop="col.prop" :label="field(col.field)" :width="col.width" :align="col.align">
+	<template #default="scope">
+		<scDictLabel v-if="col.dictCode" :dict-code="col.dictCode" :model-value="scope.row[col.prop]" />
+		<template v-else>{{ scope.row[col.prop] }}</template>
+	</template>
+</el-table-column>
+```
+
+禁止写法与完整契约见 `dict-rule.md` §3：不写 `<el-tag>{{ $DICT.getDictName(...) }}</el-tag>`、不留 `xxxText`/`xxxTagType` 双方法、一列一个具名 slot。
+
 ---
 
 ## 6. 操作列规范
@@ -590,18 +581,9 @@ data() {
       save: false,
     },
     apiObj: this.$API.system.taxRate.list,
-    // search 里只放检索条件字段，不放其它状态；searchCollapsible 依赖这一约定
-    // 字段按声明顺序每 3 个切一行，只有末行可以不满
-    search: {
-      // 第1行（常显，满 3 个）
-      taxName: "",
-      taxCode: "",
-      taxStatus: null,
-      // 第2行（可折叠，2 个，空缺在行尾）
-      unitType: null,
-      createTimeRange: null,
-    },
-    // 仅在检索条件 > 3 个时声明；≤ 3 个时删掉本行
+    // search 初始值由配置派生（searchFields.js 的 createSearch），禁止手写第二份字面量
+    search: createSearch(),
+    // 展开状态常驻声明：可见条件数动态变化，折叠骨架自动适配（§2.3）
     searchExpanded: false,
   };
 }
@@ -609,15 +591,19 @@ data() {
 
 ```javascript
 computed: {
-  // 仅在检索条件 > 3 个时声明；条件增减后展开/收起按钮自动跟随，无需手改模板
+  // 可见检索条件：按 hiddenKey 过滤（与表格列 showField 同口径）；无隐藏机制的页面直接返回 SEARCH_FIELDS
+  visibleSearchFields() {
+    return SEARCH_FIELDS.filter(field => !field.hiddenKey || this.showField(field.hiddenKey));
+  },
+  // 可见条件 > 3 才需要折叠；裁剪到 ≤ 3 时展开入口自动消失，无需手改模板
   searchCollapsible() {
-    return Object.keys(this.search).length > 3;
+    return this.visibleSearchFields.length > 3;
   }
 }
 ```
 
 > **search 字段名必须使用 camelCase**，与 Java 接口查询参数保持一致。
-> **`search` 的字段数决定展开/收起按钮是否出现**：上例 5 个字段 > 3，故渲染按钮；若裁到 3 个以内，需同时删掉第 2 行 `el-row`、展开/收起按钮、`searchExpanded` 与 `searchCollapsible`（详见 §2.3）。
+> **展开/收起由可见条件数动态判定**：`searchExpanded` / `searchCollapsible` / `.default-hide` 常驻骨架，条件增删或隐藏清单回填后自动适配（详见 §2.3）。
 
 ### 7.3 方法定义
 
@@ -687,34 +673,20 @@ methods: {
     }
   },
 
-  // 搜索
+  // 搜索：遍历可见字段按 normalize 折算入参（空值收敛 / 单值转 List / 区间拼串都在配置里），
+  // 被隐藏的字段不下发；禁止 {...this.search} 直传
   upsearch() {
-    const params = { ...this.search };
-    // 处理状态查询：单值转 List
-    if (params.taxStatus === null || params.taxStatus === '') {
-      delete params.taxStatus;
-    } else {
-      params.taxStatusList = [params.taxStatus];
-      delete params.taxStatus;
-    }
-    // 日期范围数组转逗号分隔字符串
-    if (params.createTimeRange && Array.isArray(params.createTimeRange)) {
-      params.createTimeRange = params.createTimeRange.join(',');
-    }
+    const params = {};
+    this.visibleSearchFields.forEach(field => {
+      params[field.paramKey || field.key] = field.normalize(this.search[field.key]);
+    });
     this.$refs.table.upData(params);
   },
 
-  // 重置搜索条件
+  // 重置搜索条件：初始值由配置派生，再清空参数重载表格
   resetSearch() {
-    this.search = {
-      // 将所有字段重置为初始值
-      taxName: "",
-      taxCode: "",
-      taxStatus: null,
-      unitType: null,
-      createTimeRange: null,
-    };
-    // 清空搜索参数并重新加载表格
+    this.search = createSearch();
+    this.searchExpanded = false;
     this.$refs.table.upData({});
   },
 
@@ -741,20 +713,17 @@ methods: {
 
 | # | 要求 |
 |---|---|
-| ✅ | 页面自上而下固定四层：头部 Tab（可选）→ 检索条件 → 按钮（可选）→ 表格（§1.1）；**检索条件 ≤ 2 个时二三层合并为一行，页面变三层（§2.5）** |
-| ✅ | 检索条件必须一行 3 个（`:span="8"`），按声明顺序从左到右填满（§2.1）——**仅适用于独立 `.search-wrap` 形态（条件 ≥ 3）** |
-| ✅ | **条件 ≤ 2 个时必须合并为一行：`.left-panel` 功能按钮置左、`.right-panel` > `.right-panel-search` 筛选 + 搜索按钮置右（§2.5）** |
-| ✅ | **合并形态下筛选组件必须 `clearable`（它是不渲染重置按钮后唯一的清空手段）（§2.5.3）** |
-| ✅ | 只有最后一行允许少于 3 个，且空缺只能在行尾；中间行必须满 3 个（§2.1） |
-| ✅ | 新增/删除/调整检索条件后必须整体重排，仍满足一行 3 个（§2.1） |
-| ✅ | **条件数跨越 2↔3 时必须整体切换形态，不能只增删一个组件（§2.5.4）** |
-| ✅ | 展开/收起按钮**只在检索条件 > 3 个时渲染**；≤ 3 个时必须完全不渲染（§2.3） |
-| ✅ | 条件 > 3 个时，第 2 行起必须挂 `:class="{'default-hide': !searchExpanded}"`（§2.3） |
-| ✅ | 展开/收起的出现与否统一由 `searchCollapsible` computed 判定，禁止手写死 `v-if="true/false"`（§2.3） |
-| ✅ | 第二层容器统一用 `class="search-wrap"`，禁止把容器样式写成行内 `style`（§2.2）——合并形态不用 `.search-wrap` |
-| ✅ | 搜索按钮后面必须紧跟重置按钮（**合并形态豁免，不渲染重置按钮**，§2.5.4） |
+| ✅ | 页面自上而下固定四层：头部 Tab（可选）→ 检索条件 → 按钮（可选）→ 表格（§1.1） |
+| ✅ | **检索条件配置驱动**：`searchFields.js` 的 `SEARCH_FIELDS` 是唯一事实来源，单个 `el-row.search-fields` + `v-for="visibleSearchFields"` 渲染，每格 `:span="8"` 自动换行（§2.1–§2.2） |
+| ✅ | **行间距必须保留**：`.search-fields { row-gap: 10px; margin-bottom: 10px; }`，换行后行与行之间不能贴死（§2.2） |
+| ✅ | 增删 / 隐藏字段后布局自动整体重排，行内不留缺格；字段增删只改 `searchFields.js`（§2.5） |
+| ✅ | 展开/收起由 `searchCollapsible`（可见条件数 > 3）动态判定，收起时 `index >= 3` 挂 `default-hide`；≤ 3 时入口自动不渲染，无需手工删结构（§2.3） |
+| ✅ | `visibleSearchFields` 按 `hiddenKey` 过滤（与表格列 `showField` 同口径）；入参遍历可见字段按 `normalize` 折算，隐藏字段不下发（§2.3–§2.4） |
+| ✅ | 第二层容器统一用 `class="search-wrap search-wrap--dynamic"`（左缘主色竖条模式标识，区分新旧形态），禁止把容器样式写成行内 `style`（§2.2） |
+| ✅ | 搜索按钮后面必须紧跟重置按钮；`resetSearch` 用 `createSearch()` 派生初始值，禁止手写第二份字面量（§2.4） |
 | ✅ | 头部 Tab 只写 `label`+`name`，内容为空；切换用 `reload()` 而非 `upData()`（§1.3） |
-| ✅ | 所有筛选组件必须加 prefix（按 3.1-3.4 规范）——**合并形态豁免，改用 `placeholder`**（§2.5.4） |
+| ✅ | 所有筛选组件必须加 prefix（按 3.1-3.4 规范），文案由字段配置 `label` 下发 |
+| ✅ | 检索条件 input / number 的 placeholder 默认「请输入」+ 字段名（§3.5），选择类维持「全部xx / 请选择xx」 |
 | ✅ | 数字组件必须用 `el-input-number` + `controls-position="right"` |
 | ✅ | 删除/危险操作必须使用 `this.$confirm()` 二次确认，禁止使用 `el-popconfirm` |
 | ✅ | 删除后使用 `splice` 局部删除，不触发表格整页重载 |
@@ -765,14 +734,11 @@ methods: {
 | ✅ | 第三层 `el-header` 可选，有按钮时添加，无按钮时省略 |
 | ✅ | 左右布局页面的左侧面板必须用 `side-*` 统一 class 与结构（§11），行高由全局 `.el-tree.menu` 提供 |
 | ✅ | delete 调用使用 `.delete(row.id)`，mod 调用使用 `.put(submitData)` |
-| ❌ | 禁止中间留空或用空 `el-col` 占位、禁止把 `span` 写成 6/12/16/24 来凑行 |
-| ❌ | 禁止在 ≤ 3 个条件时渲染展开/收起按钮（点了无反应的死结构） |
-| ❌ | 禁止在 > 3 个条件时漏掉展开/收起按钮（折叠行将永远无法展开） |
-| ❌ | **禁止在条件 ≤ 2 个时仍拆成 `.search-wrap` + `el-header` 两层（会留大片空白）** |
-| ❌ | **合并形态禁止给 `el-header` 加 `style="height: auto;"`（默认 60px 够用，`height:auto` 只属于多行 `.search-wrap` 形态）** |
-| ❌ | **合并形态禁止在页面 `<style scoped>` 重写 `.left-panel` / `.right-panel` / `.right-panel-search` 的 flex 与间距（全局 `fix.scss:31-34`、`app.scss:79-80` 已覆盖）** |
-| ❌ | **合并形态禁止用 `margin-right`/`margin-left` 凑组件间距；`el-input` 禁止 `width: 100%`（会撑爆 `.right-panel`）** |
-| ❌ | **禁止在合并行里塞第 3 个筛选组件（按钮 + 3 筛选 + 搜索必然溢出，应整体改回 `.search-wrap` 形态）** |
+| ❌ | 禁止手写多个 `el-row` 按行切检索条件、禁止空 `el-col` 占位、禁止把 `span` 写成 6/12/16/24 来凑行 |
+| ❌ | 禁止行间距贴死（漏写 `.search-fields` 的 `row-gap: 10px`） |
+| ❌ | 禁止绕过 `searchFields.js` 直接在模板 / `search` 字面量里增删条件（布局、折叠、重置、入参会随之漂移） |
+| ❌ | 禁止 `{...this.search}` 直传搜索入参（隐藏字段会泄漏下发，空值口径失控） |
+| ❌ | 禁止回退为手写固定行的旧版合并形态；≤2 条件可用配置驱动合并行（见 §2.5 第 5 条，控件必须 v-for 分发） |
 | ❌ | 禁止把表格塞进 `el-tab-pane`，或为每个 Tab 复制一份检索区/表格 |
 | ❌ | 无按钮时禁止保留空 `el-header`（直接省略即可） |
 | ❌ | 禁止使用 `el-input type="number"` 代替 `el-input-number` |
@@ -802,8 +768,8 @@ methods: {
 
 ## 10. 完整示例
 
-- **条件 > 3（独立 `.search-wrap` 多行 + 展开收起）**：参见 `demos/index.vue`
-- **条件 ≤ 2（二三层合并一行，功能置左、筛选置右）**：参见项目内 `src/views/setting/role/index.vue`（2 个筛选条件 + 新增按钮的标准样例），骨架与约定见 §2.5.2
+- **配置驱动检索区（任意条件数同一形态）**：参见 `demos/search-fields-demo.js` + `demos/index.vue`
+- **真实参照（含 hiddenKey 裁剪与入参折算）**：项目内 `src/views/eXproduct/products/manage/index.vue` + 同目录 `searchFields.js`
 
 ---
 

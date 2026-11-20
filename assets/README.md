@@ -13,7 +13,7 @@
 
 - 列表型 `el-container` + `el-header`/`el-main` 有/无对照示意
 - 表单型卡片分区示意图（`el-card.form-card` 卡头浅灰底 + 卡体分区）
-- 一行三格与通栏例外（`:span="24"`）排布示意图
+- 列数（1 / 2 / 3 列）与通栏例外（`:span="24"`）排布示意图
 - `append-to-body` 传送与 scoped 样式落点示意图（DOM 脱离子树后 `data-v` 命中关系）
 - 父子通信 / 数据刷新流程图（`open()` 注入 → `@confirm`/`@refresh` → 重新定位引用）
 

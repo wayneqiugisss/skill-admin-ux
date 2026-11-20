@@ -1,10 +1,11 @@
 <template>
-	<!-- # el-drawer 抽屉表单（不可用 el-dialog 替代）
-	     一行三格要求 size ≥ 75%；50% 下每格扣掉 label 后控件不足 100px -->
+	<!-- 先判容器：N（可见表单项数）/ L（通栏例外数）/ W = N − L
+	     N ≤ 6 且 L ≤ 1 → el-dialog（420/560px，单列不卡片化）；否则 el-drawer：
+	     W 1–8 → 50% + 1 列；W 9–16 → 75% + 2 列；W ≥ 17 → 90% + 3 列（本文件为宽档示例） -->
 	<el-drawer
 		:title="titleMap[mode]"
 		v-model="visible"
-		size="75%"
+		size="90%"
 		direction="rtl"
 		destroy-on-close
 		@closed="$emit('closed')"
@@ -12,7 +13,7 @@
 		<el-container direction="vertical">
 			<!-- # nopadding 清掉全局 .el-main 的 15px，留白统一由 .drawer-form 的 16px 提供 -->
 			<el-main class="nopadding">
-				<!-- label-width 100px；禁止 label-position="top"（三格下会变成三列高塔） -->
+				<!-- label-width 100px；禁止 label-position="top"（多列下会变成多列高塔） -->
 				<el-form
 					ref="dialogForm"
 					class="drawer-form"

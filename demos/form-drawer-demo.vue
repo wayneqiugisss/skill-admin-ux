@@ -1,17 +1,22 @@
 <!--
   表单型抽屉 Demo — form-drawer-demo.vue
-  场景：编辑/配置表单，el-form + el-card 卡片化分区，卡内字段一行三格
-  关键点：一行三格（:span="8"）+ 通栏例外（:span="24"）；上传一律用组件库现成组件；
+  场景：编辑/配置表单，el-form + el-card 卡片化分区
+  选型：先数 N（可见表单项数）/ L（通栏例外数）/ W = N − L
+        · N ≤ 6 且 L ≤ 1 → 改 el-dialog（420px / 560px，单列不卡片化），不要用本文件
+        · W 1–8 → 窄抽屉 50% + 1 列（:span="24"）
+        · W 9–16 → 中抽屉 75% + 2 列（:span="12"）
+        · W ≥ 17 → 宽抽屉 90% + 3 列（:span="8"）← 本文件为宽档示例
+  关键点：一行三列（:span="8"）+ 通栏例外（:span="24"）；N ≥ 9 必须 2–3 张卡；上传一律用组件库现成组件；
          append-to-body 传送 → scoped 样式落在本组件模板元素上；#footer 只放提交类按钮
   规范依据：rules/form-drawer-card-rule.md、rules/drawer-layout-rule.md、rules/drawer-comm-rule.md
-  用法：复制本文件，替换分区与表单项即可落地
+  用法：复制本文件，替换分区与表单项，并按 W 重算 size 与 span
 -->
 <template>
-	<!-- 一行三格要求 size ≥ 75%；50% 下每格扣掉 label 后控件不足 100px -->
+	<!-- 宽档：W ≥ 17 → size="90%" + 三列 span=8；中档改 75% + span=12，窄档改 50% + span=24 -->
 	<el-drawer
 		v-model="visible"
 		:title="dialogTitle"
-		size="75%"
+		size="90%"
 		direction="rtl"
 		append-to-body
 		:close-on-click-modal="false"
@@ -19,7 +24,7 @@
 	>
 		<!-- 样式落点写在 .drawer-form / .form-card（本组件模板内元素），不深穿透 .el-drawer__body -->
 		<el-form ref="formRef" class="drawer-form" :model="form" :rules="rules" :disabled="readonly" label-width="100px">
-			<!-- 分区块 1：全部常规字段，一行三格 -->
+			<!-- 分区块 1：全部常规字段，一行三列 -->
 			<el-card class="form-card" shadow="never">
 				<template #header><span class="card-title">基本信息</span></template>
 				<el-row :gutter="20">
